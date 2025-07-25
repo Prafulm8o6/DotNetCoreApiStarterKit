@@ -1,0 +1,6 @@
+@DotNetCoreApiStarterKit_HostAddress = http://localhost:5160
+
+GET {{DotNetCoreApiStarterKit_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
