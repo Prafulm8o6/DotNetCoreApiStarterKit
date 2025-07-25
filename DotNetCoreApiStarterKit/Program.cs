@@ -1,7 +1,16 @@
 using DotNetCoreApiStarterKit.API.Extensions;
 using DotNetCoreApiStarterKit.API.Middleware;
+using DotNetCoreApiStarterKit.Domain.Entities.Identity;
+using DotNetCoreApiStarterKit.Infrastructure.DbContext;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Add DbContext
+builder.Services.AddDbContext<ApplicationDbContext>(options => options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+builder.Services.AddIdentity<ApplicationUser, IdentityRole>().AddEntityFrameworkStores<ApplicationDbContext>();
 
 // Add services to the container.
 
