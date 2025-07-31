@@ -2,25 +2,26 @@ using DotNetCoreApiStarterKit.API.Extensions;
 using DotNetCoreApiStarterKit.API.Middleware;
 using DotNetCoreApiStarterKit.Domain.Entities.Identity;
 using DotNetCoreApiStarterKit.Infrastructure.DbContext;
+using DotNetCoreApiStarterKit.Infrastructure.Seed;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// ==========================================
+// DATABASE CONFIGURATION
+// ==========================================
+builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 // ==========================================
-// Database Configuration
+// IDENTITY CONFIGURATION
 // ==========================================
-builder.Services.AddDbContext<ApplicationDbContext>(options => options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
-
-// ==========================================
-// Identity Configuration
-// ==========================================
-
 builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
 {
-    // Optional: Password/Lockout/User settings
     options.Password.RequireDigit = true;
     options.Password.RequiredLength = 6;
     options.Password.RequireUppercase = true;
@@ -35,7 +36,32 @@ builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
 .AddDefaultTokenProviders();
 
 // ==========================================
-// Add CORS Policy
+// JWT AUTHENTICATION CONFIGURATION
+// ==========================================
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = "JwtBearer";
+    options.DefaultChallengeScheme = "JwtBearer";
+})
+.AddJwtBearer("JwtBearer", options =>
+{
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = true,
+        ValidateAudience = true,
+        ValidateLifetime = true,
+        ValidateIssuerSigningKey = true,
+        ClockSkew = TimeSpan.Zero,
+
+        ValidIssuer = builder.Configuration["Jwt:Issuer"],
+        ValidAudience = builder.Configuration["Jwt:Audience"],
+        IssuerSigningKey = new SymmetricSecurityKey(
+            Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!)) // Ensure key length >= 256 bits
+    };
+});
+
+// ==========================================
+// GLOBAL CORS POLICY
 // ==========================================
 builder.Services.AddCors(options =>
 {
@@ -48,15 +74,15 @@ builder.Services.AddCors(options =>
 });
 
 // ==========================================
-// Add Application Services
+// CONTROLLERS, DEPENDENCIES, SERVICES
 // ==========================================
 builder.Services.AddControllers();
-builder.Services.AddApplicationServices();
-builder.Services.AddOpenApi();
-builder.Services.AddSwaggerGen();
+builder.Services.AddApplicationServices(); // Custom extension for services
+builder.Services.AddOpenApi();            // Custom extension if you defined OpenAPI configs
+builder.Services.AddSwaggerGen();         // Swagger generator
 
 // ==========================================
-// Swagger Configuration with Bearer Token
+// SWAGGER CONFIG WITH JWT AUTH SUPPORT
 // ==========================================
 builder.Services.AddSwaggerGen(options =>
 {
@@ -95,7 +121,28 @@ builder.Services.AddSwaggerGen(options =>
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+// ==========================================
+// SEED DEFAULT USERS AND ROLES
+// ==========================================
+using (var scope = app.Services.CreateScope())
+{
+    var services = scope.ServiceProvider;
+    try
+    {
+        var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
+        var roleManager = services.GetRequiredService<RoleManager<IdentityRole>>();
+
+        await DefaultDataSeeder.SeedDefaultDataAsync(userManager, roleManager);
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Seeding error: {ex.Message}");
+    }
+}
+
+// ==========================================
+// MIDDLEWARE PIPELINE
+// ==========================================
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
@@ -105,14 +152,11 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-app.UseCors("AllowAll"); // Enable CORS globally
+app.UseCors("AllowAll");                  // Enable CORS globally
+app.UseMiddleware<ExceptionMiddleware>(); // Custom global exception handler
+app.UseAuthentication();                  // Enable authentication middleware
+app.UseAuthorization();                   // Enable authorization middleware
 
-app.UseMiddleware<ExceptionMiddleware>();
-
-app.UseAuthentication();
-
-app.UseAuthorization();
-
-app.MapControllers();
+app.MapControllers();                     // Map all controller endpoints
 
 app.Run();
